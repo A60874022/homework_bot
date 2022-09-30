@@ -128,7 +128,7 @@ def main() -> None:
                 old_logs = logs
             logging.info(f'Сбой в работе программы: {error}')
         finally:
-            time.sleep(RETRY_TIME)
+            time.sleep(10)
 
 
 if __name__ == '__main__':
