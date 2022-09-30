@@ -39,7 +39,7 @@ def send_message(bot, message: str) -> None:
 
 
 def get_api_answer(current_timestamp: int) -> Dict[str, list]:
-    """Получение и преобразование в dist информации о текущих работах"""
+    """Получение и преобразование в dist информации о текущих работах."""
     params = {'from_date': current_timestamp}
     homework_statuses = requests.get(ENDPOINT, headers=HEADERS, params=params)
     try:
