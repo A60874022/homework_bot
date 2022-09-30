@@ -1,14 +1,23 @@
+import logging
+import os
 import time
-import requests
-#load_dotenv()
-from pprint import pprint
-from telegram import Bot
-from time import sleep
-import telegram
 from http import HTTPStatus
-import logging, sys
+from typing import Any, Dict
 
+import requests
+from dotenv import load_dotenv
+from telegram import Bot
 
+load_dotenv()
+
+PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
+TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
+RETRY_TIME: int = 600
+ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
+HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
+FIRST_WORK: int = 0
+MESSAGE_LENGTH = 0
 logging.basicConfig(
     level=logging.INFO,
     filename='program.log',
@@ -16,28 +25,21 @@ logging.basicConfig(
     format='%(asctime)s, %(levelname)s, %(message)s, %(name)s, %(lineno)d'
 )
 
-
-PRACTICUM_TOKEN = 'y0_AgAAAAAPwqe-AAYckQAAAADPv9tT-fSiNdLfTqOot84NycAt9p5tu_Q'
-TELEGRAM_TOKEN = '5725028117:AAEmV6mZrBP1YAM8-IhQSKSNc3E5YgSechI'
-TELEGRAM_CHAT_ID = '1725468162'
-
-RETRY_TIME = 600
-ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
-HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
-
-
-HOMEWORK_STATUSES = {
+HOMEWORK_STATUSES: Dict[str, str] = {
     'approved': 'Работа проверена: ревьюеру всё понравилось. Ура!',
     'reviewing': 'Работа взята на проверку ревьюером.',
     'rejected': 'Работа проверена: у ревьюера есть замечания.',
 }
 
-def send_message(bot, message):
-        chat_id = TELEGRAM_CHAT_ID
-        bot.send_message(chat_id, message)
+
+def send_message(bot, message: str) -> None:
+    """Отправка сообщения в Телеграмм."""
+    chat_id = TELEGRAM_CHAT_ID
+    bot.send_message(chat_id, message)
 
 
-def get_api_answer(current_timestamp):
+def get_api_answer(current_timestamp: int) -> Dict[str, list]:
+    """Получение и преобразование в dist информации о текущих работах"""
     params = {'from_date': current_timestamp}
     homework_statuses = requests.get(ENDPOINT, headers=HEADERS, params=params)
     try:
@@ -48,11 +50,13 @@ def get_api_answer(current_timestamp):
             logging.error(
                 f' Код ответа API: {homework_statuses.status_code}')
             raise OSError(f'Код ответа API: {homework_statuses.status_code}')
-    except:
-            logging.error('Запрос не отправлен к основному API')
-            raise AssertionError
-    
-def check_response(response):
+    except AssertionError:
+        logging.error('Запрос не отправлен к основному API')
+        raise AssertionError
+
+
+def check_response(response: Dict[str, list]) -> list:
+    """Возвращает список домашних работ."""
     if 'homeworks' not in response:
         logging.error('Отсутствует ключ homeworks')
         raise TypeError('Отсутствует ключ homeworks')
@@ -65,38 +69,39 @@ def check_response(response):
     return response.get('homeworks')
 
 
-
-def parse_status(homework):
+def parse_status(homework: Dict[Any, str]) -> str:
+    """Возврашает статус работы, посланной на проверку."""
     if 'status' not in homework:
         logging.error('Отсутствует ключ status')
         raise KeyError('Отсутствует ключ status')
-    if  len(homework) == 0:
+    if len(homework) == MESSAGE_LENGTH:
         logging.error('Отсутствуют данные в homework')
         raise KeyError(('Отсутствуют данные в homework'))
     try:
         name = homework['status']
         name_work = homework.get('homework_name')
         verdict = HOMEWORK_STATUSES[name]
-        logging.info(f'Изменился статус проверки работы {name_work}. {HOMEWORK_STATUSES.get(name)}')
-        return f'Изменился статус проверки работы "{name_work }". {verdict}'
-    except:
-        logging.error('Значение ключа status не совпадает с HOMEWORK_STATUSES')
-        raise KeyError('Значение ключа status не совпадает с HOMEWORK_STATUSES')
-        
-    
+        logging.info(f'Изменился статус работы "{name_work}". {verdict}')
+        return f'Изменился статус проверки работы "{name_work}". {verdict}'
+    except KeyError:
+        logging.error('Status не совпадает с HOMEWORK_STATUSES')
+        raise KeyError('Status не совпадает с HOMEWORK_STATUSES')
 
-def check_tokens():
-    """Проверка наличия токенов."""
+
+def check_tokens() -> bool:
+    """Проверка наличия критических переменных."""
     if PRACTICUM_TOKEN and TELEGRAM_TOKEN:
         if TELEGRAM_CHAT_ID and ENDPOINT:
             return True
     return False
 
-def main():
+
+def main() -> None:
     """Основная логика работы бота."""
-    old_messenge = ''
+    old_messenge: str = ''
+    old_logs = ''
     bot = Bot(token=TELEGRAM_TOKEN)
-    if check_tokens() == False:
+    if check_tokens() is False:
         logging.CRITICAL('Отсутстсвуют обязательные переменные')
         exit()
     while (True):
@@ -104,21 +109,27 @@ def main():
             current_timestamp = int(time.time())
             api = get_api_answer(current_timestamp)
             list_of_works = check_response(api)
-            if len(list_of_works) == 0:  
+            if len(list_of_works) == MESSAGE_LENGTH:
                 logging.info('Работа еще не отправлена')
             else:
-                homework = list_of_works[0]
+                homework = list_of_works[FIRST_WORK]
                 message = parse_status(homework)
-                if  old_messenge !=  message:
+                if old_messenge != message:
                     send_message(bot, message)
                     logging.info('Сообщение отправлено в телеграмм')
                     old_messenge = message
                 else:
                     logging.info('Статус работы не изменился')
         except Exception as error:
-            LOG = f'Сбой в работе программы: {error}'
-            send_message(bot, LOG)
-        time.sleep(10)
+            logs = f'Сбой в работе программы: {error}'
+            if old_logs != logs:
+                logs = f'Сбой в работе программы: {error}'
+                send_message(bot, logs)
+                old_logs = logs
+            logging.info(f'Сбой в работе программы: {error}')
+        finally:
+            time.sleep(10)
+
 
 if __name__ == '__main__':
     main()
