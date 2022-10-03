@@ -7,17 +7,19 @@ from typing import Any, Dict
 import requests
 from dotenv import load_dotenv
 from telegram import Bot
-
+from errors import ExceptionDataType, ExceptionStatusCode
 load_dotenv()
 
 PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-RETRY_TIME: int = 600
+
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
+
+RETRY_TIME: int = 600
 FIRST_WORK: int = 0
-MESSAGE_LENGTH = 0
+
 logging.basicConfig(
     level=logging.INFO,
     filename='program.log',
@@ -41,78 +43,70 @@ def send_message(bot, message: str) -> None:
 def get_api_answer(current_timestamp: int) -> Dict[str, list]:
     """Получение и преобразование в dist информации о текущих работах."""
     params = {'from_date': current_timestamp}
-    homework_statuses = requests.get(ENDPOINT, headers=HEADERS, params=params)
     try:
-        if homework_statuses.status_code == HTTPStatus.OK:
+        homework_statuses = requests.get(ENDPOINT,
+                                         headers=HEADERS, params=params)
+        if homework_statuses.status_code != HTTPStatus.OK:
+            raise ExceptionStatusCode(Exception)
+        else:
             logging.info('Запрос отправлен к основному API')
             return homework_statuses.json()
-        else:
-            logging.error(
-                f' Код ответа API: {homework_statuses.status_code}')
-            raise OSError(f'Код ответа API: {homework_statuses.status_code}')
-    except AssertionError:
-        logging.error('Запрос не отправлен к основному API')
-        raise AssertionError
+    except AssertionError('Ошибка при получении API'):
+        logging.ERROR('Ошибка при получении API')
 
 
 def check_response(response: Dict[str, list]) -> list:
     """Возвращает список домашних работ."""
-    if 'homeworks' not in response:
-        logging.error('Отсутствует ключ homeworks')
-        raise TypeError('Отсутствует ключ homeworks')
-    if len(response) == 0:
-        logging.error('Отсутствуют данные в pesponse')
-        raise TypeError('Отсутствуют данные в pesponse')
-    if type(response.get('homeworks')) != list:
-        logging.error('тип данных homeworks не список')
+    if not isinstance(response, Dict):
+        raise TypeError('response не словарь')
+    if not response:
+        raise ExceptionDataType('Словарь response пустой')
+    if isinstance(response.get('homeworks'), list):
+        return response.get('homeworks')
+    else:
         raise TypeError('тип данных homeworks не список')
-    return response.get('homeworks')
 
 
 def parse_status(homework: Dict[Any, str]) -> str:
     """Возврашает статус работы, посланной на проверку."""
-    if 'status' not in homework:
-        logging.error('Отсутствует ключ status')
-        raise KeyError('Отсутствует ключ status')
-    if len(homework) == MESSAGE_LENGTH:
-        logging.error('Отсутствуют данные в homework')
-        raise KeyError(('Отсутствуют данные в homework'))
-    try:
-        name = homework['status']
+    if not isinstance(homework, Dict):
+        raise TypeError('Структура данных homework не словарь')
+    if not homework:
+        raise ExceptionDataType('Словарь homework пустой')
+    if homework.get('status') in HOMEWORK_STATUSES:
         name_work = homework.get('homework_name')
-        verdict = HOMEWORK_STATUSES[name]
+        verdict = HOMEWORK_STATUSES.get(homework.get('status'))
         logging.info(f'Изменился статус работы "{name_work}". {verdict}')
         return f'Изменился статус проверки работы "{name_work}". {verdict}'
-    except KeyError:
-        logging.error('Status не совпадает с HOMEWORK_STATUSES')
+    else:
         raise KeyError('Status не совпадает с HOMEWORK_STATUSES')
 
 
 def check_tokens() -> bool:
     """Проверка наличия критических переменных."""
-    if PRACTICUM_TOKEN and TELEGRAM_TOKEN:
-        if TELEGRAM_CHAT_ID and ENDPOINT:
-            return True
-    return False
+    data = [PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, ENDPOINT]
+    return all([i for i in data])
 
 
 def main() -> None:
-    """Основная логика работы бота."""
+    """Основная логика работы программы."""
     old_messenge: str = ''
     old_logs = ''
     bot = Bot(token=TELEGRAM_TOKEN)
     if check_tokens() is False:
         logging.CRITICAL('Отсутстсвуют обязательные переменные')
         exit()
-    while (True):
+    while True:
         try:
             current_timestamp = int(time.time())
             api = get_api_answer(current_timestamp)
+            logging.info(f'{api}, {int(time.time())}')
             list_of_works = check_response(api)
-            if len(list_of_works) == MESSAGE_LENGTH:
-                logging.info('Работа еще не отправлена')
+            if not list_of_works:
+                logging.info('Статус работы не изменился')
             else:
                 homework = list_of_works[FIRST_WORK]
+                logging.info(f'{homework}, {int(time.time())}')
                 message = parse_status(homework)
                 if old_messenge != message:
                     send_message(bot, message)
