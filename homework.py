@@ -47,12 +47,13 @@ def get_api_answer(current_timestamp: int) -> Dict[str, list]:
         homework_statuses = requests.get(ENDPOINT,
                                          headers=HEADERS, params=params)
         if homework_statuses.status_code != HTTPStatus.OK:
-            raise ExceptionStatusCode(Exception)
+            raise ExceptionStatusCode(f'Статус код'
+                                      f'{homework_statuses.status_code}')
         else:
             logging.info('Запрос отправлен к основному API')
             return homework_statuses.json()
     except AssertionError('Ошибка при получении API'):
-        logging.ERROR('Ошибка при получении API')
+        logging.error('Ошибка при получении API')
 
 
 def check_response(response: Dict[str, list]) -> list:
@@ -85,7 +86,7 @@ def parse_status(homework: Dict[Any, str]) -> str:
 def check_tokens() -> bool:
     """Проверка наличия критических переменных."""
     data = [PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, ENDPOINT]
-    return all([i for i in data])
+    return all(data)
 
 
 def main() -> None:
@@ -93,8 +94,8 @@ def main() -> None:
     old_messenge: str = ''
     old_logs = ''
     bot = Bot(token=TELEGRAM_TOKEN)
-    if check_tokens() is False:
-        logging.CRITICAL('Отсутстсвуют обязательные переменные')
+    if not check_tokens():
+        logging.critical('Отсутстсвуют обязательные переменные')
         exit()
     while True:
         try:
